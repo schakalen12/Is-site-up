@@ -1,6 +1,7 @@
 import sys
 import time
 import datetime
+import threading
 from lankar import urls
 
 missingimports = False
@@ -29,6 +30,7 @@ ua = UserAgent()
 headers = {'User-Agent': ua.random}
 #Ignorera SSL-problem.
 requests.packages.urllib3.disable_warnings()
+output_lock = threading.Lock()
 
 def banner():
     print("*" * 76)
@@ -78,21 +80,21 @@ def convert_time(seconds):
     minutes = round(minutes)
     hours = round(hours)
     if hours > 0:
-        return f"{hours} timme, {minutes} minuter och {seconds} sekunder."
+        return f"{hours} timmar, {minutes} minuter och {seconds} sekunder."
     elif minutes > 0:
         return f"{minutes} minuter och {seconds} sekunder."
     else:
         return f"{seconds} sekunder."
 
-prev_status_codes = {}
-start_times = {}
-printed_200_flag = {}
-
 banner()
 
-while True:
-    try:    
-        for url in urls:
+def check_url(hostname, url):
+    prev_status_codes = {}
+    start_times = {}
+    printed_200_flag = {}
+    
+    while True:
+        try:    
             status_code = get_status_code(url)
             hostname = urls[url]
             status_message = get_status_message(status_code)
@@ -111,24 +113,40 @@ while True:
                     elapsed_time = time.time() - start_times[hostname]
                     elapsed_time_minutes = elapsed_time / 60
                     if not status_message:
-                        print(colorama.Fore.RED + f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {hostname.capitalize()} svarar inte. {status_code}") 
+                        with output_lock:
+                            print(colorama.Fore.RED + f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {hostname.capitalize()} svarar inte. {status_code}") 
                         time.sleep(1)
                     elif status_message:
-                        print (colorama.Fore.RED + f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {hostname.capitalize()} svarar inte.Statuskod: {status_code} - {status_message}")  
+                        with output_lock:
+                            print (colorama.Fore.RED + f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {hostname.capitalize()} svarar inte. Statuskod: {status_code} - {status_message}")  
                         time.sleep(1)
             else:
                 if printed_200_flag[hostname] == False:
-                    print(colorama.Fore.GREEN + f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {hostname.capitalize()} {status_code} ({status_message})")
+                    with output_lock:
+                        print(colorama.Fore.GREEN + f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {hostname.capitalize()} {status_code} ({status_message})")
                     printed_200_flag[hostname] = True
                     time.sleep(1)
                 if hostname in start_times:
                     start_time = start_times[hostname]
                     elapsed_time = time.time() - start_time
                     elapsed_time_minutes = elapsed_time / 60
-                    print(colorama.Fore.YELLOW + f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {hostname.capitalize()} svarade inte under ca {convert_time(elapsed_time)}")
-                    print(colorama.Fore.GREEN + f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {hostname.capitalize()} {status_code} ({status_message})")
+                    with output_lock:
+                        print(colorama.Fore.YELLOW + f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {hostname.capitalize()} svarade inte under ca {convert_time(elapsed_time)}")
+                        print(colorama.Fore.GREEN + f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {hostname.capitalize()} {status_code} ({status_message})")
                     del start_times[hostname]
                     time.sleep(1)
-    except:
-        print(colorama.Fore.RED + f"Skriptfel! Avslutar.")     
-        sys.exit()       
+        except:
+            print(colorama.Fore.RED + f"Avslutar.")     
+            sys.exit() 
+            
+def start_monitoring():
+    for url in urls:
+        hostname = urls[url]
+        t = threading.Thread(target=check_url, args=(hostname, url))
+        t.daemon = True
+        t.start()
+
+    while True:
+        time.sleep(1)
+
+start_monitoring()      
